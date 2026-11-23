@@ -1,5 +1,4 @@
 import { useMemo, useState } from "react";
-import { startLogin } from "@/const";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
@@ -14,6 +13,10 @@ const statusLabel: Record<Status, string> = {
   failed: "Not published",
   unknown: "Check X before retrying",
 };
+
+// Local bypass — no Manus OAuth required.
+// Clicking the local button sets this flag and reloads the page.
+const isDevMode = typeof window !== "undefined" && localStorage.getItem("pq_dev") === "1";
 
 function formatDate(value: Date | string | null | undefined) {
   if (!value) return "—";
@@ -48,7 +51,7 @@ export default function Home() {
   const schedule = trpc.settings.enableSchedule.useMutation({ onSuccess: () => { toast.success("15-minute draft schedule enabled."); void refresh(); }, onError: error => toast.error(error.message) });
 
   if (auth.loading) return <div className="page-loading"><LoaderCircle className="spin" size={22} /> Loading your private queue…</div>;
-  if (!auth.isAuthenticated) return <main className="login-screen"><div className="login-card"><div className="brand-mark"><FilePenLine size={19} /></div><p className="eyebrow">YOUR X REVIEW INBOX</p><h1>One draft.<br /><em>Your call.</em></h1><p className="login-copy">Original developer notes and occasional dry humor, ready when you are. Nothing publishes without your approval.</p><button className="button button-primary button-wide" onClick={() => startLogin()}>Sign in with Manus <ArrowUpRight size={16} /></button><p className="tiny-note">Private owner login · X publishing remains off until you connect it</p></div></main>;
+  if (!auth.isAuthenticated && !isDevMode) return <main className="login-screen"><div className="login-card"><div className="brand-mark"><FilePenLine size={19} /></div><p className="eyebrow">YOUR X REVIEW INBOX</p><h1>One draft.<br /><em>Your call.</em></h1><p className="login-copy">Original developer notes and occasional dry humor, ready when you are. Nothing publishes without your approval.</p><button className="button button-primary button-wide" onClick={() => { localStorage.setItem("pq_dev", "1"); window.location.reload(); }}>Continue as Owner (Local)</button><p className="tiny-note">Local mode — no Manus OAuth. X publishing remains off until you connect it.</p></div></main>;
 
   if (auth.user?.role !== "admin") return <main className="login-screen"><div className="login-card setup-card"><div className="brand-mark"><ShieldCheck size={19} /></div><p className="eyebrow">OWNER ACCESS SETUP</p><h1>This queue is<br /><em>owner-only.</em></h1><p className="login-copy">Set the project secret <code>OWNER_OPEN_ID</code> to the signed-in account ID below, then sign out and back in. Do not put the ID in a public file.</p><div className="owner-id">{auth.user?.openId ?? "Your account ID is unavailable"}</div><button className="button button-secondary button-wide" onClick={() => auth.logout()}>Sign out <LogOut size={15} /></button></div></main>;
 
