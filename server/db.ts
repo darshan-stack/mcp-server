@@ -3,7 +3,7 @@ import { drizzle } from "drizzle-orm/mysql2";
 import { InsertUser, Post, PostSettings, postSettings, posts, users } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 
-// MySQL database (production)
+// MySQL database (production - traditional)
 let _mysqlDb: ReturnType<typeof drizzle> | null = null;
 
 export async function getMysqlDb() {
@@ -16,6 +16,34 @@ export async function getMysqlDb() {
     }
   }
   return _mysqlDb;
+}
+
+// Turso/libSQL database (production - Turso Cloud)
+let _tursoDb: { db: any; schema: any } | null = null;
+
+export async function getTursoDb() {
+  if (!_tursoDb && process.env.TURSO_DATABASE_URL && process.env.TURSO_AUTH_TOKEN) {
+    try {
+      const { createClient } = await import("@libsql/client");
+      const { drizzle } = await import("drizzle-orm/libsql");
+      const schema = await import("./local-schema");
+      
+      const client = createClient({
+        url: process.env.TURSO_DATABASE_URL,
+        authToken: process.env.TURSO_AUTH_TOKEN,
+      });
+      
+      _tursoDb = {
+        db: drizzle(client, { schema }),
+        schema,
+      };
+      console.log("[Database] Connected to Turso");
+    } catch (error) {
+      console.warn("[Database] Failed to connect to Turso:", error);
+      _tursoDb = null;
+    }
+  }
+  return _tursoDb;
 }
 
 // Local SQLite database (development)
@@ -40,11 +68,15 @@ export async function getLocalDb() {
 }
 
 async function getActiveDb() {
+  // Priority: Turso > MySQL > Local SQLite
+  const tursoDb = await getTursoDb();
+  if (tursoDb) return { db: tursoDb.db, schema: tursoDb.schema, isMysql: false, isTurso: true };
+  
   const mysqlDb = await getMysqlDb();
-  if (mysqlDb) return { db: mysqlDb, schema: null, isMysql: true };
+  if (mysqlDb) return { db: mysqlDb, schema: null, isMysql: true, isTurso: false };
   
   const localDb = await getLocalDb();
-  return { db: localDb.db, schema: localDb.schema, isMysql: false };
+  return { db: localDb.db, schema: localDb.schema, isMysql: false, isTurso: false };
 }
 
 export async function upsertUser(user: InsertUser): Promise<void> {
