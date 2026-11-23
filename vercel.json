@@ -5,6 +5,11 @@
   "buildCommand": "pnpm build",
   "devCommand": "pnpm dev",
   "installCommand": "pnpm install",
+  "functions": {
+    "api/index.cjs": {
+      "runtime": "nodejs20.x"
+    }
+  },
   "rewrites": [
     { "source": "/api/:path*", "destination": "/api/index.cjs" },
     { "source": "/assets/:path*", "destination": "/assets/:path*" },
