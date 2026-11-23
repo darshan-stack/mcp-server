@@ -64,7 +64,17 @@ export default function Home() {
           {isProd ? (
             <>
               <p className="login-copy">Enter the access password to continue.</p>
-              <form onSubmit={e => { e.preventDefault(); const pwd = (e.currentTarget as HTMLFormElement).elements.namedItem("pwd") as HTMLInputElement; const val = pwd.value; localStorage.setItem("pq_pwd", val); document.cookie = `pq_pwd=${encodeURIComponent(val)}; Path=/; Max-Age=${60*60*24*30}; SameSite=Lax`; window.location.reload(); }}>
+              <form onSubmit={e => {
+                e.preventDefault();
+                const form = e.currentTarget as HTMLFormElement;
+                const pwd = form.elements.namedItem("pwd") as HTMLInputElement;
+                const val = pwd.value.trim();
+                if (!val) return;
+                localStorage.setItem("pq_pwd", val);
+                document.cookie = `pq_pwd=${encodeURIComponent(val)}; Path=/; Max-Age=${60*60*24*30}; SameSite=Lax`;
+                // Force reload after a tiny delay to ensure storage is flushed
+                setTimeout(() => window.location.reload(), 50);
+              }}>
                 <input name="pwd" type="password" className="pwd-input" placeholder="Access password" autoComplete="current-password" required />
                 <button className="button button-primary button-wide" type="submit">Unlock</button>
               </form>
