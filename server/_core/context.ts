@@ -18,17 +18,32 @@ function checkAuth(req: any): boolean {
     // No password set - allow access (fallback)
     return true;
   }
-  // Check Authorization header (Basic auth) or custom header
-  const authHeader = req.headers?.authorization;
+
+  // Vercel normalizes headers to lowercase
+  const headers = req.headers || {};
+
+  // Check Authorization header (Basic auth)
+  const authHeader = headers.authorization;
   if (authHeader?.startsWith("Basic ")) {
-    const credentials = Buffer.from(authHeader.slice(6), "base64").toString();
-    const [, providedPassword] = credentials.split(":");
-    return providedPassword === password;
+    try {
+      const credentials = Buffer.from(authHeader.slice(6), "base64").toString();
+      const [, providedPassword] = credentials.split(":");
+      if (providedPassword === password) return true;
+    } catch {}
   }
-  // Check custom header
-  if (req.headers?.["x-access-password"] === password) {
+
+  // Check custom header (lowercase on Vercel)
+  if (headers["x-access-password"] === password) {
     return true;
   }
+
+  // Also check cookie as fallback
+  const cookieHeader = headers.cookie;
+  if (cookieHeader) {
+    const match = cookieHeader.match(/pq_pwd=([^;]+)/);
+    if (match && decodeURIComponent(match[1]) === password) return true;
+  }
+
   return false;
 }
 
