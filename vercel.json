@@ -5,6 +5,11 @@
   "buildCommand": "pnpm build",
   "devCommand": "pnpm dev",
   "installCommand": "pnpm install",
+  "functions": {
+    "api/index.cjs": {
+      "runtime": "nodejs20.x"
+    }
+  },
   "routes": [
     { "src": "/api/(.*)", "dest": "/api/index.cjs" },
     { "src": "/assets/(.*)", "dest": "/assets/$1" },
