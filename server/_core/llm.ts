@@ -340,8 +340,57 @@ const fetchWithBackoff = async (
     : new Error("LLM request failed after exhausting retries");
 };
 
+// Local template-based fallback for draft generation when no LLM API key
+function localFallbackDraft(params: InvokeParams): InvokeResult {
+  const userMsg = params.messages.find(m => m.role === "user");
+  const sysMsg = params.messages.find(m => m.role === "system");
+  const userContent = typeof userMsg?.content === "string" ? userMsg.content : "";
+  
+  // Parse topics from user message
+  const topicsMatch = userContent.match(/Topics:\s*([^\n]+)/);
+  const topics = topicsMatch?.[1]?.trim() || "software development, open source, learning in public, practical developer lessons, and developer life";
+  
+  // Simple template-based drafts
+  const templates = [
+    `Just spent 3 hours debugging a race condition that turned out to be a missing await. The fix? One line. The lesson? Async bugs are the ghosts of our codebase — invisible until they haunt production.`,
+    `Reading old code I wrote 6 months ago is the best code review. "Who wrote this?" Oh right, me. The comments help, but honest variable names would've saved me more time.`,
+    `Shipped a small feature today. No fanfare, no metrics dashboard, just a PR that makes one workflow 10% smoother. Those are the days that actually feel like progress.`,
+    `Open source maintainer tip: if a contributor's first PR has a failing test, merge it with a comment "test fixed in follow-up" and assign yourself the fix. Lowers the barrier, keeps quality.`,
+    `Learning in public means posting the broken version first. The feedback loop is faster when you're wrong in public than when you're perfect in private.`,
+    `Sometimes the best refactor is deleting 200 lines of clever abstraction and replacing it with 20 lines of boring code. Future you will thank present you.`,
+    `Debugging distributed systems: 90% is adding logs, 9% is realizing the log format is wrong, 1% is the actual fix. Invest in structured logging early.`,
+    `Code review rule: if you find yourself writing "nit:" more than 3 times, stop. Either it's a pattern worth discussing in a call, or it's just bikeshedding.`,
+    `The gap between "it works on my machine" and "it works in prod" is usually environment variables, not logic. Automate the diff, don't memorize it.`,
+    `Junior dev asks: "How do I know when to abstract?" Senior dev: "When you've copy-pasted it three times and the fourth time feels wrong."`,
+  ];
+  
+  // Pick a template based on a simple hash of topics for variety
+  const hash = topics.split("").reduce((a, c) => a + c.charCodeAt(0), 0);
+  const draft = templates[hash % templates.length];
+  
+  return {
+    choices: [{
+      index: 0,
+      message: {
+        role: "assistant",
+        content: draft,
+        tool_calls: undefined,
+      },
+      finish_reason: "stop",
+    }],
+    created: Date.now(),
+    id: `local-${Date.now()}`,
+    model: "local-template-fallback",
+    usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+  };
+}
+
 export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
-  assertApiKey();
+  // Local fallback: if no LLM API key, generate a template-based draft
+  if (!ENV.forgeApiKey?.trim()) {
+    console.warn("[LLM] No API key configured — using local template fallback");
+    return localFallbackDraft(params);
+  }
 
   const {
     messages,
