@@ -43,7 +43,9 @@ const trpcClient = trpc.createClient({
       url: "/api/trpc",
       transformer: superjson,
       headers() {
-        // Local mode: no sessionStorage fallback needed
+        // Send access password from localStorage if set (for production)
+        const pwd = typeof window !== "undefined" ? localStorage.getItem("pq_pwd") : null;
+        if (pwd) return { "x-access-password": pwd };
         return {};
       },
       fetch(input, init) {

@@ -53,7 +53,34 @@ export default function Home() {
   if (auth.loading) return <div className="page-loading"><LoaderCircle className="spin" size={22} /> Loading your private queue…</div>;
   if (!auth.isAuthenticated && !isDevMode) return <main className="login-screen"><div className="login-card"><div className="brand-mark"><FilePenLine size={19} /></div><p className="eyebrow">YOUR X REVIEW INBOX</p><h1>One draft.<br /><em>Your call.</em></h1><p className="login-copy">Original developer notes and occasional dry humor, ready when you are. Nothing publishes without your approval.</p><button className="button button-primary button-wide" onClick={() => { localStorage.setItem("pq_dev", "1"); window.location.reload(); }}>Continue as Owner (Local)</button><p className="tiny-note">Local mode — no Manus OAuth. X publishing remains off until you connect it.</p></div></main>;
 
-  if (auth.user?.role !== "admin") return <main className="login-screen"><div className="login-card setup-card"><div className="brand-mark"><ShieldCheck size={19} /></div><p className="eyebrow">OWNER ACCESS SETUP</p><h1>This queue is<br /><em>owner-only.</em></h1><p className="login-copy">Set the project secret <code>OWNER_OPEN_ID</code> to the signed-in account ID below, then sign out and back in. Do not put the ID in a public file.</p><div className="owner-id">{auth.user?.openId ?? "Your account ID is unavailable"}</div><button className="button button-secondary button-wide" onClick={() => auth.logout()}>Sign out <LogOut size={15} /></button></div></main>;
+  if (auth.user?.role !== "admin") {
+    const isProd = process.env.NODE_ENV === "production";
+    return (
+      <main className="login-screen">
+        <div className="login-card setup-card">
+          <div className="brand-mark"><ShieldCheck size={19} /></div>
+          <p className="eyebrow">OWNER ACCESS</p>
+          <h1>This queue is<br /><em>private.</em></h1>
+          {isProd ? (
+            <>
+              <p className="login-copy">Enter the access password to continue.</p>
+              <form onSubmit={e => { e.preventDefault(); const pwd = (e.currentTarget as HTMLFormElement).elements.namedItem("pwd") as HTMLInputElement; localStorage.setItem("pq_pwd", pwd.value); window.location.reload(); }}>
+                <input name="pwd" type="password" className="pwd-input" placeholder="Access password" autoComplete="current-password" required />
+                <button className="button button-primary button-wide" type="submit">Unlock</button>
+              </form>
+              <p className="tiny-note">Set ACCESS_PASSWORD in Vercel Environment Variables to enable this.</p>
+            </>
+          ) : (
+            <>
+              <p className="login-copy">Local development — click to enter.</p>
+              <button className="button button-primary button-wide" onClick={() => { localStorage.setItem("pq_dev", "1"); window.location.reload(); }}>Continue as Owner (Local)</button>
+              <p className="tiny-note">Local mode — no password required.</p>
+            </>
+          )}
+        </div>
+      </main>
+    );
+  }
 
   const settings = settingsQuery.data;
   const draftText = editing ? editedText : selected?.content ?? "";

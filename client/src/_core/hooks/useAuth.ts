@@ -36,6 +36,7 @@ export function useAuth(options?: UseAuthOptions) {
       throw error;
     } finally {
       localStorage.removeItem("pq_dev");
+      localStorage.removeItem("pq_pwd");
       utils.auth.me.setData(undefined, null);
       await utils.auth.me.invalidate();
     }
