@@ -2,8 +2,6 @@ import "dotenv/config";
 import express from "express";
 import { createServer } from "http";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
-import { registerOAuthRoutes } from "./oauth";
-import { publicPlatformScript } from "./publicConfig";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { handleScheduledDraft } from "../scheduled";
@@ -17,11 +15,7 @@ app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
 app.get("/api/health", (_req, res) => res.json({ status: "ok" }));
-app.get("/api/platform/config.js", (_req, res) => {
-  res.set("Cache-Control", "no-store").type("application/javascript").send(publicPlatformScript());
-});
 app.post("/api/scheduled/generate-draft", handleScheduledDraft);
-registerOAuthRoutes(app);
 
 // tRPC API
 app.use(
@@ -35,11 +29,11 @@ app.use(
 // Only start listening when run directly (not when imported by Vercel)
 if (import.meta.main) {
   async function startServer() {
-    const server = createServer(app);
+    const httpServer = createServer(app);
 
     // development mode uses Vite, production mode uses static files
     if (process.env.NODE_ENV === "development") {
-      await setupVite(app, server);
+      await setupVite(app, httpServer);
     } else {
       serveStatic(app);
     }
@@ -48,11 +42,11 @@ if (import.meta.main) {
     if (!Number.isInteger(port) || port < 1 || port > 65535) {
       throw new Error("Invalid PORT");
     }
-    server.on("error", error => {
+    httpServer.on("error", error => {
       console.error("Server failed:", error.message);
       process.exit(1);
     });
-    server.listen(port, "0.0.0.0", () => console.log(`Server listening on port ${port}`));
+    httpServer.listen(port, "0.0.0.0", () => console.log(`Server listening on port ${port}`));
   }
 
   startServer().catch(error => {
