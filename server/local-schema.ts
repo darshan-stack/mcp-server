@@ -1,4 +1,7 @@
-import { integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { sql } from "drizzle-orm";
+import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+
+const currentTimestamp = sql`(unixepoch() * 1000)`;
 
 export const users = sqliteTable("users", {
   id: integer("id").primaryKey({ autoIncrement: true }),
@@ -7,9 +10,9 @@ export const users = sqliteTable("users", {
   email: text("email", { length: 320 }),
   loginMethod: text("loginMethod", { length: 64 }),
   role: text("role", { enum: ["user", "admin"] }).default("user").notNull(),
-  createdAt: integer("createdAt", { mode: "timestamp" }).notNull().default(new Date()),
-  updatedAt: integer("updatedAt", { mode: "timestamp" }).notNull().default(new Date()).$onUpdate(() => new Date()),
-  lastSignedIn: integer("lastSignedIn", { mode: "timestamp" }).notNull().default(new Date()),
+  createdAt: integer("createdAt", { mode: "timestamp" }).notNull().default(currentTimestamp),
+  updatedAt: integer("updatedAt", { mode: "timestamp" }).notNull().default(currentTimestamp).$onUpdate(() => new Date()),
+  lastSignedIn: integer("lastSignedIn", { mode: "timestamp" }).notNull().default(currentTimestamp),
 });
 
 export const posts = sqliteTable("posts", {
@@ -22,12 +25,12 @@ export const posts = sqliteTable("posts", {
   slotKey: text("slotKey", { length: 40 }).unique(),
   xPostId: text("xPostId", { length: 32 }).unique(),
   errorMessage: text("errorMessage"),
-  createdAt: integer("createdAt", { mode: "timestamp" }).notNull().default(new Date()),
+  createdAt: integer("createdAt", { mode: "timestamp" }).notNull().default(currentTimestamp),
   approvedAt: integer("approvedAt", { mode: "timestamp" }),
   publishedAt: integer("publishedAt", { mode: "timestamp" }),
-  updatedAt: integer("updatedAt", { mode: "timestamp" }).notNull().default(new Date()).$onUpdate(() => new Date()),
+  updatedAt: integer("updatedAt", { mode: "timestamp" }).notNull().default(currentTimestamp).$onUpdate(() => new Date()),
 }, (table) => ({
-  userIdIdx: uniqueIndex("posts_userId_idx").on(table.userId),
+  userIdIdx: index("posts_userId_idx").on(table.userId),
 }));
 
 export const postSettings = sqliteTable("postSettings", {
@@ -37,8 +40,8 @@ export const postSettings = sqliteTable("postSettings", {
   tone: text("tone").notNull(),
   paused: integer("paused").notNull().default(0),
   generationTaskUid: text("generationTaskUid", { length: 80 }),
-  createdAt: integer("createdAt", { mode: "timestamp" }).notNull().default(new Date()),
-  updatedAt: integer("updatedAt", { mode: "timestamp" }).notNull().default(new Date()).$onUpdate(() => new Date()),
+  createdAt: integer("createdAt", { mode: "timestamp" }).notNull().default(currentTimestamp),
+  updatedAt: integer("updatedAt", { mode: "timestamp" }).notNull().default(currentTimestamp).$onUpdate(() => new Date()),
 });
 
 export type User = typeof users.$inferSelect;

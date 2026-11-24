@@ -2,6 +2,7 @@ import { and, desc, eq, isNotNull } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import { InsertUser, Post, PostSettings, postSettings, posts, users } from "../drizzle/schema";
 import { ENV } from "./_core/env";
+import { ensureTursoAppSchema } from "./turso-schema";
 
 // MySQL database (production - traditional)
 let _mysqlDb: ReturnType<typeof drizzle> | null = null;
@@ -32,6 +33,7 @@ export async function getTursoDb() {
         url: process.env.TURSO_DATABASE_URL,
         authToken: process.env.TURSO_AUTH_TOKEN,
       });
+      await ensureTursoAppSchema(client);
       
       _tursoDb = {
         db: drizzle(client, { schema }),
