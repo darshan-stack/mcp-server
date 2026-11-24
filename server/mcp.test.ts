@@ -51,13 +51,15 @@ describe("PostQueue MCP endpoint", () => {
       const result = await client.listTools();
       const names = result.tools.map(tool => tool.name).sort();
       expect(names).toEqual([
+        "postqueue_check_x_connection",
         "postqueue_generate_draft",
         "postqueue_get_settings",
         "postqueue_list_posts",
         "postqueue_manage_schedule",
+        "postqueue_search_x_posts",
         "postqueue_update_settings",
       ]);
-      expect(names.some(name => name.includes("publish"))).toBe(false);
+      expect(names.some(name => /publish|post_tweet|delete|like|follow|bookmark/i.test(name))).toBe(false);
     } finally {
       await client.close();
     }
