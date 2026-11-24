@@ -33,6 +33,8 @@ export default function Home() {
   const [showSettings, setShowSettings] = useState(false);
   const [topics, setTopics] = useState("");
   const [tone, setTone] = useState("");
+  const [unlockError, setUnlockError] = useState("");
+  const [unlockPending, setUnlockPending] = useState(false);
   const postsQuery = trpc.posts.list.useQuery(undefined, { enabled: auth.user?.role === "admin", refetchInterval: 20_000 });
   const settingsQuery = trpc.settings.get.useQuery(undefined, { enabled: auth.user?.role === "admin" });
   const posts = postsQuery.data ?? [];
@@ -64,20 +66,37 @@ export default function Home() {
           {isProd ? (
             <>
               <p className="login-copy">Enter the access password to continue.</p>
-              <form onSubmit={e => {
+              <form onSubmit={async e => {
                 e.preventDefault();
                 const form = e.currentTarget as HTMLFormElement;
                 const pwd = form.elements.namedItem("pwd") as HTMLInputElement;
                 const val = pwd.value.trim();
                 if (!val) return;
+                setUnlockError("");
+                setUnlockPending(true);
                 localStorage.setItem("pq_pwd", val);
-                document.cookie = `pq_pwd=${encodeURIComponent(val)}; Path=/; Max-Age=${60*60*24*30}; SameSite=Lax`;
-                // Force reload after a tiny delay to ensure storage is flushed
-                setTimeout(() => window.location.reload(), 50);
+                try {
+                  const verifiedUser = await utils.auth.me.fetch();
+                  if (verifiedUser?.role !== "admin") {
+                    localStorage.removeItem("pq_pwd");
+                    setUnlockError("That password was not accepted. Check it and try again.");
+                    return;
+                  }
+                  document.cookie = `pq_pwd=${encodeURIComponent(val)}; Path=/; Max-Age=${60*60*24*30}; SameSite=Lax`;
+                  localStorage.removeItem("pq_dev");
+                  window.location.reload();
+                } catch (error) {
+                  localStorage.removeItem("pq_pwd");
+                  console.error("Password verification failed", error);
+                  setUnlockError("Unable to verify access right now. Please try again shortly.");
+                } finally {
+                  setUnlockPending(false);
+                }
               }}>
                 <input name="pwd" type="password" className="pwd-input" placeholder="Access password" autoComplete="current-password" required />
-                <button className="button button-primary button-wide" type="submit">Unlock</button>
+                <button className="button button-primary button-wide" type="submit" disabled={unlockPending}>{unlockPending ? "Checking…" : "Unlock"}</button>
               </form>
+              {unlockError && <p role="alert" style={{ color: "#b42318", fontSize: "0.85rem", marginTop: 10 }}>{unlockError}</p>}
               <p className="tiny-note">Set ACCESS_PASSWORD in Vercel Environment Variables to enable this.</p>
             </>
           ) : (
