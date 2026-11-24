@@ -16,6 +16,7 @@ function loadApp() {
 
 const isSupportedApiPath = (path) =>
   path === "health" ||
+  path === "mcp" ||
   path === "trpc" ||
   path.startsWith("trpc/") ||
   path === "scheduled/generate-draft";
