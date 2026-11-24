@@ -1,4 +1,5 @@
 import type { User } from "../../drizzle/schema";
+import { ensureLocalOwner } from "../db";
 
 export type TrpcContext = {
   req: any;
@@ -49,18 +50,8 @@ function checkAuth(req: any): boolean {
 
 export async function createContext(opts: any): Promise<TrpcContext> {
   const isAuthed = checkAuth(opts.req);
-
-  const user: User = {
-    id: 1,
-    openId: isAuthed ? "owner" : "unauthorized",
-    name: isAuthed ? "Owner" : "Unauthorized",
-    email: null,
-    loginMethod: "local",
-    role: isAuthed ? "admin" : "user",
-    createdAt: new Date(),
-    updatedAt: new Date(),
-    lastSignedIn: new Date(),
-  };
+  const localOwner = isAuthed ? await ensureLocalOwner() : null;
+  const user: User | null = localOwner ? { ...localOwner, role: "admin" } : null;
 
   return {
     req: opts.req,

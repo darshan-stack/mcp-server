@@ -1,6 +1,6 @@
 import { and, desc, eq, isNotNull } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, Post, PostSettings, postSettings, posts, users } from "../drizzle/schema";
+import { InsertUser, Post, PostSettings, User, postSettings, posts, users } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 import { ensureTursoAppSchema } from "./turso-schema";
 
@@ -130,6 +130,42 @@ export async function getUserByOpenId(openId: string) {
     const result = await db.select().from(schema.users).where(eq(schema.users.openId, openId)).limit(1);
     return result[0];
   }
+}
+
+export async function ensureLocalOwner(): Promise<User> {
+  const { db, schema, isMysql } = await getActiveDb();
+  const findById = async () => isMysql
+    ? (await db.select().from(users).where(eq(users.id, 1)).limit(1))[0]
+    : (await db.select().from(schema.users).where(eq(schema.users.id, 1)).limit(1))[0];
+  const existingIdOne = await findById();
+  if (existingIdOne) return existingIdOne as User;
+
+  const existingOwner = await getUserByOpenId("owner");
+  if (existingOwner) return existingOwner as User;
+
+  const values: InsertUser = {
+    id: 1,
+    openId: "owner",
+    name: "Owner",
+    loginMethod: "local",
+    role: "admin",
+  };
+  try {
+    if (isMysql) {
+      await db.insert(users).values(values);
+    } else {
+      await db.insert(schema.users).values(values);
+    }
+  } catch (error) {
+    // Concurrent cold starts may both try to create the same owner row.
+    const winner = await findById() ?? await getUserByOpenId("owner");
+    if (winner) return winner as User;
+    throw error;
+  }
+
+  const owner = await getUserByOpenId("owner");
+  if (!owner) throw new Error("Local owner could not be created");
+  return owner as User;
 }
 
 export async function listPosts(userId: number, limit = 100): Promise<Post[]> {
