@@ -50,7 +50,19 @@ function checkAuth(req: any): boolean {
 
 export async function createContext(opts: any): Promise<TrpcContext> {
   const isAuthed = checkAuth(opts.req);
-  const localOwner = isAuthed ? await ensureLocalOwner() : null;
+  let localOwner = null;
+  if (isAuthed) {
+    try {
+      localOwner = await ensureLocalOwner();
+    } catch (error) {
+      // Do not log request headers or credentials; the error is limited to owner DB initialization.
+      console.error(
+        "[Auth] Owner initialization failed:",
+        error instanceof Error ? error.message : "Unknown database error",
+      );
+      throw error;
+    }
+  }
   const user: User | null = localOwner ? { ...localOwner, role: "admin" } : null;
 
   return {

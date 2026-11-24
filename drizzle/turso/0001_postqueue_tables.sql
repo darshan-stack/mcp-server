@@ -1,6 +1,17 @@
 -- Turso/libSQL migration for the PostQueue app tables.
 -- This migration is additive: it creates tables/indexes only if they are missing.
--- The existing users table is intentionally left untouched.
+
+CREATE TABLE IF NOT EXISTS "users" (
+  "id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+  "openId" TEXT(64) NOT NULL UNIQUE,
+  "name" TEXT,
+  "email" TEXT(320),
+  "loginMethod" TEXT(64),
+  "role" TEXT DEFAULT 'user' NOT NULL,
+  "createdAt" INTEGER DEFAULT (unixepoch() * 1000) NOT NULL,
+  "updatedAt" INTEGER DEFAULT (unixepoch() * 1000) NOT NULL,
+  "lastSignedIn" INTEGER DEFAULT (unixepoch() * 1000) NOT NULL
+);
 
 CREATE TABLE IF NOT EXISTS "posts" (
   "id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,

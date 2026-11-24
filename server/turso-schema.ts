@@ -3,6 +3,17 @@ export interface TursoSqlClient {
 }
 
 export const TURSO_APP_SCHEMA_STATEMENTS = [
+  `CREATE TABLE IF NOT EXISTS "users" (
+    "id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+    "openId" TEXT(64) NOT NULL UNIQUE,
+    "name" TEXT,
+    "email" TEXT(320),
+    "loginMethod" TEXT(64),
+    "role" TEXT DEFAULT 'user' NOT NULL,
+    "createdAt" INTEGER DEFAULT (unixepoch() * 1000) NOT NULL,
+    "updatedAt" INTEGER DEFAULT (unixepoch() * 1000) NOT NULL,
+    "lastSignedIn" INTEGER DEFAULT (unixepoch() * 1000) NOT NULL
+  )`,
   `CREATE TABLE IF NOT EXISTS "posts" (
     "id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
     "userId" INTEGER NOT NULL REFERENCES "users"("id") ON UPDATE NO ACTION ON DELETE CASCADE,

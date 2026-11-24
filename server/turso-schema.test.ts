@@ -7,6 +7,12 @@ import { ensureTursoAppSchema } from "./turso-schema";
 
 const temporaryDirectories: string[] = [];
 
+function createTestClient() {
+  const directory = mkdtempSync(path.join(tmpdir(), "postqueue-turso-"));
+  temporaryDirectories.push(directory);
+  return createClient({ url: `file:${path.join(directory, "test.db")}` });
+}
+
 afterEach(() => {
   for (const directory of temporaryDirectories.splice(0)) {
     rmSync(directory, { recursive: true, force: true });
@@ -14,17 +20,10 @@ afterEach(() => {
 });
 
 describe("Turso app schema bootstrap", () => {
-  it("creates missing queue tables, is idempotent, and preserves multi-post history", async () => {
-    const directory = mkdtempSync(path.join(tmpdir(), "postqueue-turso-"));
-    temporaryDirectories.push(directory);
-    const client = createClient({ url: `file:${path.join(directory, "test.db")}` });
+  it("creates all missing tables, is idempotent, and preserves multi-post history", async () => {
+    const client = createTestClient();
 
     try {
-      await client.execute(`CREATE TABLE "users" (
-        "id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
-        "openId" TEXT NOT NULL UNIQUE
-      )`);
-
       await ensureTursoAppSchema(client);
       await ensureTursoAppSchema(client);
 
@@ -33,6 +32,7 @@ describe("Turso app schema bootstrap", () => {
         args: ["schema-test-user"],
       });
       const userId = Number(userResult.lastInsertRowid);
+      expect(userId).toBeGreaterThan(0);
 
       await client.execute({
         sql: `INSERT INTO "postSettings" ("userId", "topics", "tone") VALUES (?, ?, ?)`,
@@ -59,6 +59,37 @@ describe("Turso app schema bootstrap", () => {
       expect(settings.rows[0]?.topics).toBe("test topics");
       expect(Number(settings.rows[0]?.createdAt)).toBeGreaterThan(1_700_000_000_000);
       expect(Number(posts.rows[0]?.count)).toBe(2);
+    } finally {
+      client.close();
+    }
+  });
+
+  it("does not replace or delete an existing users table or row", async () => {
+    const client = createTestClient();
+
+    try {
+      await client.execute(`CREATE TABLE "users" (
+        "id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+        "openId" TEXT NOT NULL UNIQUE
+      )`);
+      await client.execute({
+        sql: `INSERT INTO "users" ("openId") VALUES (?)`,
+        args: ["existing-user"],
+      });
+
+      await ensureTursoAppSchema(client);
+      await ensureTursoAppSchema(client);
+
+      const existing = await client.execute(`SELECT "id", "openId" FROM "users"`);
+      expect(existing.rows).toHaveLength(1);
+      expect(existing.rows[0]?.openId).toBe("existing-user");
+
+      await client.execute({
+        sql: `INSERT INTO "postSettings" ("userId", "topics", "tone") VALUES (?, ?, ?)`,
+        args: [Number(existing.rows[0]?.id), "preserved topics", "preserved tone"],
+      });
+      const settings = await client.execute(`SELECT "topics" FROM "postSettings"`);
+      expect(settings.rows[0]?.topics).toBe("preserved topics");
     } finally {
       client.close();
     }
