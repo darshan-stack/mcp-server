@@ -14,13 +14,13 @@ function loadApp() {
   return appPromise;
 }
 
-const isSupportedApiPath = path =>
+const isSupportedApiPath = (path) =>
   path === "health" ||
   path === "trpc" ||
   path.startsWith("trpc/") ||
   path === "scheduled/generate-draft";
 
-module.exports = async function handler(req, res) {
+export default async function handler(req, res) {
   const requestUrl = new URL(req.url || "/", "http://vercel.local");
   const capturedPath = requestUrl.searchParams.get("path");
   const apiPath = capturedPath?.replace(/^\/+/, "");
@@ -51,4 +51,4 @@ module.exports = async function handler(req, res) {
       res.end(JSON.stringify({ error: "Internal server error" }));
     }
   }
-};
+}
