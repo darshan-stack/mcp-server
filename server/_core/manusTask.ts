@@ -3,12 +3,21 @@ import { ENV } from "./env";
 type ManusEvent = {
   type?: string;
   assistant_message?: { content?: unknown };
+  error_message?: { content?: unknown };
+  status_update?: {
+    agent_status?: string;
+    status_detail?: {
+      waiting_for_event_id?: string;
+      waiting_for_event_type?: string;
+      waiting_description?: string;
+    };
+  };
 };
 
 type ManusResponse = {
   ok?: boolean;
   task_id?: string;
-  task?: { status?: string; has_running_background_jobs?: boolean };
+  task?: { has_running_background_jobs?: boolean };
   messages?: ManusEvent[];
 };
 
@@ -63,11 +72,23 @@ function parseJson(value: unknown): ManusResponse {
   return value as ManusResponse;
 }
 
+function getLatestStatusEvent(messages: ManusEvent[] | undefined): ManusEvent | undefined {
+  if (!Array.isArray(messages)) return undefined;
+  return messages.find(event => event?.type === "status_update" && typeof event.status_update?.agent_status === "string");
+}
+
 function extractAssistantText(messages: ManusEvent[] | undefined): string {
   if (!Array.isArray(messages)) return "";
   const latestAssistantMessage = messages.find(event => event?.type === "assistant_message");
   const text = latestAssistantMessage?.assistant_message?.content;
   return typeof text === "string" ? text.trim() : "";
+}
+
+function extractTaskError(messages: ManusEvent[] | undefined): string {
+  if (!Array.isArray(messages)) return "";
+  const event = messages.find(item => item?.type === "error_message");
+  const content = event?.error_message?.content;
+  return typeof content === "string" ? content.trim().slice(0, 500) : "";
 }
 
 function cleanDraftText(text: string): string {
@@ -79,9 +100,8 @@ function cleanDraftText(text: string): string {
 }
 
 /**
- * Creates one private Manus agent task for a draft, polls its main-agent status,
- * and returns only the final assistant message after the task stops. It never
- * confirms waiting actions and never publishes to X.
+ * Creates one private Manus agent task for a draft and polls the documented
+ * status_update events. It never confirms waiting actions and never publishes to X.
  */
 export async function generateManusTaskDraft(prompt: string, options: ManusTaskOptions = {}): Promise<string> {
   const apiBaseUrl = getApiBaseUrl();
@@ -132,39 +152,42 @@ export async function generateManusTaskDraft(prompt: string, options: ManusTaskO
   const taskId = typeof created.task_id === "string" ? created.task_id.trim() : "";
   if (!taskId) throw new Error("Manus API did not return a task ID. No draft was saved.");
 
+  const taskUrl = `https://manus.im/app/${encodeURIComponent(taskId)}`;
+  const messagesUrl = new URL(`${apiBaseUrl}/v2/task.listMessages`);
+  messagesUrl.searchParams.set("task_id", taskId);
+  messagesUrl.searchParams.set("order", "desc");
+  messagesUrl.searchParams.set("limit", "50");
+
   const detailUrl = new URL(`${apiBaseUrl}/v2/task.detail`);
   detailUrl.searchParams.set("task_id", taskId);
 
   while (Date.now() < deadline) {
-    const detail = await requestJson(detailUrl.toString(), { method: "GET" });
-    const status = detail.task?.status;
+    const progress = await requestJson(messagesUrl.toString(), { method: "GET" });
+    const latestStatus = getLatestStatusEvent(progress.messages)?.status_update;
+    const status = latestStatus?.agent_status;
 
     if (status === "waiting") {
-      throw new Error("Manus task is waiting for user input or approval. No draft was saved; no action was confirmed automatically.");
+      const waitingType = latestStatus?.status_detail?.waiting_for_event_type;
+      const waitingDescription = latestStatus?.status_detail?.waiting_description;
+      const context = [waitingType, waitingDescription].filter(Boolean).join(": ");
+      throw new Error(`Manus task is waiting for user input or approval${context ? ` (${context})` : ""}. Open ${taskUrl} to inspect it. No draft was saved; no action was confirmed automatically.`);
     }
     if (status === "error") {
-      throw new Error("Manus task failed. No draft was saved.");
+      const detail = extractTaskError(progress.messages);
+      throw new Error(`Manus task failed${detail ? `: ${detail}` : ""}. No draft was saved.`);
     }
     if (status === "stopped") {
-      if (detail.task?.has_running_background_jobs) {
-        throw new Error("Manus task stopped with unfinished background work. No draft was saved.");
+      const detail = await requestJson(detailUrl.toString(), { method: "GET" });
+      if (detail.task?.has_running_background_jobs === false) {
+        const content = cleanDraftText(extractAssistantText(progress.messages));
+        if (!content) throw new Error("Manus task completed without usable assistant text. No draft was saved.");
+        return content;
       }
-      const messagesUrl = new URL(`${apiBaseUrl}/v2/task.listMessages`);
-      messagesUrl.searchParams.set("task_id", taskId);
-      messagesUrl.searchParams.set("order", "desc");
-      messagesUrl.searchParams.set("limit", "50");
-      const messages = await requestJson(messagesUrl.toString(), { method: "GET" });
-      const content = cleanDraftText(extractAssistantText(messages.messages));
-      if (!content) throw new Error("Manus task completed without usable assistant text. No draft was saved.");
-      return content;
-    }
-    if (status !== "running") {
-      throw new Error("Manus API returned an unknown task status. No draft was saved.");
     }
 
     const remaining = deadline - Date.now();
     if (remaining > 0) await new Promise(resolve => setTimeout(resolve, Math.min(pollIntervalMs, remaining)));
   }
 
-  throw new Error("Manus draft generation timed out. The Manus task may still be running; check the PostQueue task in Manus before retrying. No draft was saved.");
+  throw new Error(`Manus draft generation timed out. The task may still be running; check ${taskUrl} before retrying. No draft was saved.`);
 }

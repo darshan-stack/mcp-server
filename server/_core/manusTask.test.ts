@@ -22,15 +22,18 @@ describe("Manus task-backed draft generation", () => {
     configureApi();
     const request = vi.fn()
       .mockResolvedValueOnce(ok({ ok: true, task_id: "task-123" }))
-      .mockResolvedValueOnce(ok({ ok: true, task: { status: "running" } }))
-      .mockResolvedValueOnce(ok({ ok: true, task: { status: "stopped" } }))
+      .mockResolvedValueOnce(ok({
+        ok: true,
+        messages: [{ type: "status_update", status_update: { agent_status: "running" } }],
+      }))
       .mockResolvedValueOnce(ok({
         ok: true,
         messages: [
-          { type: "assistant_message", assistant_message: { content: "\"A small draft about shipping one useful improvement.\"" } },
           { type: "status_update", status_update: { agent_status: "stopped" } },
+          { type: "assistant_message", assistant_message: { content: "\"A small draft about shipping one useful improvement.\"" } },
         ],
-      }));
+      }))
+      .mockResolvedValueOnce(ok({ ok: true, task: { status: "stopped", has_running_background_jobs: false } }));
 
     await expect(generateManusTaskDraft("Generate a draft", { fetchImpl: request, pollIntervalMs: 0 }))
       .resolves.toBe("A small draft about shipping one useful improvement.");
@@ -49,18 +52,58 @@ describe("Manus task-backed draft generation", () => {
       clear_connectors: true,
       message: { content: "Generate a draft" },
     });
-    expect(String(request.mock.calls[1]?.[0])).toContain("/v2/task.detail?task_id=task-123");
-    expect(String(request.mock.calls[3]?.[0])).toContain("/v2/task.listMessages?");
+    expect(String(request.mock.calls[1]?.[0])).toContain("/v2/task.listMessages?");
+    expect(String(request.mock.calls[1]?.[0])).toContain("order=desc");
+    expect(String(request.mock.calls[2]?.[0])).toContain("/v2/task.listMessages?");
+    expect(String(request.mock.calls[3]?.[0])).toContain("/v2/task.detail?task_id=task-123");
   });
 
-  it("does not accept or confirm a task waiting for user input", async () => {
+  it("uses status_update events rather than task.detail status, avoiding false waiting failures", async () => {
+    configureApi();
+    const request = vi.fn()
+      .mockResolvedValueOnce(ok({ ok: true, task_id: "task-transient" }))
+      .mockResolvedValueOnce(ok({
+        ok: true,
+        messages: [{ type: "status_update", status_update: { agent_status: "running" } }],
+      }))
+      .mockResolvedValueOnce(ok({
+        ok: true,
+        messages: [
+          { type: "status_update", status_update: { agent_status: "stopped" } },
+          { type: "assistant_message", assistant_message: { content: "A useful draft returned after the agent stopped." } },
+        ],
+      }))
+      .mockResolvedValueOnce(ok({ ok: true, task: { status: "waiting", has_running_background_jobs: false } }));
+
+    await expect(generateManusTaskDraft("Generate a draft", { fetchImpl: request, pollIntervalMs: 0 }))
+      .resolves.toBe("A useful draft returned after the agent stopped.");
+    expect(request).toHaveBeenCalledTimes(4);
+    expect(String(request.mock.calls[1]?.[0])).toContain("/v2/task.listMessages?");
+  });
+
+  it("does not accept or confirm a task genuinely waiting for user input", async () => {
     configureApi();
     const request = vi.fn()
       .mockResolvedValueOnce(ok({ ok: true, task_id: "task-wait" }))
-      .mockResolvedValueOnce(ok({ ok: true, task: { status: "waiting" } }));
+      .mockResolvedValueOnce(ok({
+        ok: true,
+        messages: [{
+          type: "status_update",
+          status_update: {
+            agent_status: "waiting",
+            status_detail: {
+              waiting_for_event_type: "messageAskUser",
+              waiting_description: "Which topic should I use?",
+            },
+          },
+        }],
+      }));
 
-    await expect(generateManusTaskDraft("Generate a draft", { fetchImpl: request }))
-      .rejects.toThrow("waiting for user input or approval");
+    const generation = generateManusTaskDraft("Generate a draft", { fetchImpl: request });
+    await expect(generation)
+      .rejects.toThrow("waiting for user input or approval (messageAskUser: Which topic should I use?)");
+    await expect(generation)
+      .rejects.toThrow("https://manus.im/app/task-wait");
     expect(request).toHaveBeenCalledTimes(2);
   });
 
@@ -68,18 +111,50 @@ describe("Manus task-backed draft generation", () => {
     configureApi();
     const request = vi.fn()
       .mockResolvedValueOnce(ok({ ok: true, task_id: "task-error" }))
-      .mockResolvedValueOnce(ok({ ok: true, task: { status: "error" } }));
+      .mockResolvedValueOnce(ok({
+        ok: true,
+        messages: [
+          { type: "status_update", status_update: { agent_status: "error" } },
+          { type: "error_message", error_message: { content: "The agent could not finish." } },
+        ],
+      }));
 
     await expect(generateManusTaskDraft("Generate a draft", { fetchImpl: request }))
-      .rejects.toThrow("Manus task failed");
+      .rejects.toThrow("Manus task failed: The agent could not finish.");
+  });
+
+  it("waits for background jobs even after the main agent stops", async () => {
+    configureApi();
+    const request = vi.fn()
+      .mockResolvedValueOnce(ok({ ok: true, task_id: "task-background" }))
+      .mockResolvedValueOnce(ok({
+        ok: true,
+        messages: [{ type: "status_update", status_update: { agent_status: "stopped" } }],
+      }))
+      .mockResolvedValueOnce(ok({ ok: true, task: { status: "stopped", has_running_background_jobs: true } }))
+      .mockResolvedValueOnce(ok({
+        ok: true,
+        messages: [
+          { type: "status_update", status_update: { agent_status: "stopped" } },
+          { type: "assistant_message", assistant_message: { content: "The final draft after background work." } },
+        ],
+      }))
+      .mockResolvedValueOnce(ok({ ok: true, task: { status: "stopped", has_running_background_jobs: false } }));
+
+    await expect(generateManusTaskDraft("Generate a draft", { fetchImpl: request, pollIntervalMs: 0 }))
+      .resolves.toBe("The final draft after background work.");
+    expect(request).toHaveBeenCalledTimes(5);
   });
 
   it("does not return a draft if the task completes without assistant text", async () => {
     configureApi();
     const request = vi.fn()
       .mockResolvedValueOnce(ok({ ok: true, task_id: "task-empty" }))
-      .mockResolvedValueOnce(ok({ ok: true, task: { status: "stopped" } }))
-      .mockResolvedValueOnce(ok({ ok: true, messages: [] }));
+      .mockResolvedValueOnce(ok({
+        ok: true,
+        messages: [{ type: "status_update", status_update: { agent_status: "stopped" } }],
+      }))
+      .mockResolvedValueOnce(ok({ ok: true, task: { has_running_background_jobs: false } }));
 
     await expect(generateManusTaskDraft("Generate a draft", { fetchImpl: request }))
       .rejects.toThrow("without usable assistant text");
@@ -89,14 +164,15 @@ describe("Manus task-backed draft generation", () => {
     configureApi();
     const request = vi.fn()
       .mockResolvedValueOnce(ok({ ok: true, task_id: "task-empty-latest" }))
-      .mockResolvedValueOnce(ok({ ok: true, task: { status: "stopped" } }))
       .mockResolvedValueOnce(ok({
         ok: true,
         messages: [
+          { type: "status_update", status_update: { agent_status: "stopped" } },
           { type: "assistant_message", assistant_message: { content: "" } },
           { type: "assistant_message", assistant_message: { content: "Older non-final text." } },
         ],
-      }));
+      }))
+      .mockResolvedValueOnce(ok({ ok: true, task: { has_running_background_jobs: false } }));
 
     await expect(generateManusTaskDraft("Generate a draft", { fetchImpl: request }))
       .rejects.toThrow("without usable assistant text");
@@ -106,7 +182,10 @@ describe("Manus task-backed draft generation", () => {
     configureApi();
     const request = vi.fn()
       .mockResolvedValueOnce(ok({ ok: true, task_id: "task-running" }))
-      .mockResolvedValue(ok({ ok: true, task: { status: "running" } }));
+      .mockResolvedValue(ok({
+        ok: true,
+        messages: [{ type: "status_update", status_update: { agent_status: "running" } }],
+      }));
 
     await expect(generateManusTaskDraft("Generate a draft", {
       fetchImpl: request,
