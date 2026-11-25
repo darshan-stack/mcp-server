@@ -68,9 +68,22 @@ export async function publishApprovedDraft(id: number, userId: number) {
     throw new TRPCError({ code: "SERVICE_UNAVAILABLE", message: "The result is uncertain. Check your X account before attempting another post; this draft has been held to prevent duplicates." });
   }
 
-  const body = await response.json().catch(() => ({})) as { data?: { id?: string }; errors?: Array<{ message?: string; detail?: string }> };
+  const body = await response.json().catch(() => ({})) as {
+    data?: { id?: string };
+    title?: string;
+    detail?: string;
+    errors?: Array<{ message?: string; detail?: string }>;
+  };
   if (!response.ok) {
-    const reason = body.errors?.[0]?.detail ?? body.errors?.[0]?.message ?? `X returned HTTP ${response.status}`;
+    const reason = body.errors?.[0]?.detail
+      ?? body.errors?.[0]?.message
+      ?? body.detail
+      ?? body.title
+      ?? (response.status === 403
+        ? "X denied posting. Confirm the user access token has tweet.write, tweet.read, and users.read scopes, and that the X app has Read and Write permissions."
+        : response.status === 401
+          ? "X rejected authentication. Confirm this is an active OAuth 2.0 user access token, not an app-only bearer token, and replace it if expired or revoked."
+          : `X returned HTTP ${response.status}`);
     await db.updatePublishingPost({ id, userId, status: "failed", errorMessage: reason.slice(0, 1000) });
     throw new TRPCError({ code: "BAD_GATEWAY", message: `X did not accept the post: ${reason}` });
   }
