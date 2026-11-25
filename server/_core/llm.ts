@@ -216,7 +216,11 @@ const platformApiBase = () => {
   if (!ENV.forgeApiUrl.trim()) throw new Error("MANUS_API_URL is not configured");
   return ENV.forgeApiUrl.replace(/\/$/, "");
 };
-const resolveApiUrl = () => `${platformApiBase()}/v1/chat/completions`;
+const versionedApiBase = () => {
+  const base = platformApiBase().replace(/\/v1(?:\/chat\/completions|\/models)?$/, "");
+  return `${base}/v1`;
+};
+const resolveApiUrl = () => `${versionedApiBase()}/chat/completions`;
 
 const assertApiKey = () => {
   if (!ENV.forgeApiKey) {
@@ -298,8 +302,8 @@ const computeBackoffDelay = (
   return Math.min(Math.max(jittered, retryAfterMs ?? 0), RETRY_MAX_DELAY_MS);
 };
 
-// Retries non-2xx responses and network errors with exponential backoff, then
-// returns the final Response so callers keep their existing error handling.
+// Retry only transient HTTP statuses and network errors; permanent 4xx errors
+// should be returned immediately for their caller to report or correct.
 const fetchWithBackoff = async (
   url: string,
   init: FetchInit
@@ -309,7 +313,9 @@ const fetchWithBackoff = async (
   for (let attempt = 0; attempt <= RETRY_MAX_RETRIES; attempt++) {
     try {
       const response = await fetch(url, init);
-      if (response.ok || attempt === RETRY_MAX_RETRIES) {
+      const retryableStatus = response.status === 408 || response.status === 409 ||
+        response.status === 429 || response.status >= 500;
+      if (response.ok || !retryableStatus || attempt === RETRY_MAX_RETRIES) {
         return response;
       }
 
@@ -462,6 +468,11 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
 
   if (!response.ok) {
     const errorText = await response.text();
+    if (response.status === 404) {
+      throw new Error(
+        "LLM invoke failed: HTTP 404 Not Found. Check MANUS_API_URL: it must be the Manus API base URL (or end in /v1); the app calls /v1/chat/completions."
+      );
+    }
     throw new Error(
       `LLM invoke failed: ${response.status} ${response.statusText} – ${errorText}`
     );
@@ -485,7 +496,7 @@ export type ModelsResponse = {
 export async function listLLMModels(): Promise<ModelsResponse> {
   assertApiKey();
 
-  const url = `${platformApiBase()}/v1/models`;
+  const url = `${versionedApiBase()}/models`;
 
   const response = await fetchWithBackoff(url, {
     headers: { authorization: `Bearer ${ENV.forgeApiKey}` },

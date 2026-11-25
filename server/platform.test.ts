@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { publicPlatformConfig, publicPlatformScript } from "./_core/publicConfig";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { sdk } from "./_core/sdk";
-import { listLLMModels } from "./_core/llm";
+import { invokeLLM, listLLMModels } from "./_core/llm";
 import { generateImage } from "./_core/imageGeneration";
 import { COOKIE_NAME } from "../shared/const";
 
@@ -20,6 +20,33 @@ describe("current platform integration", () => {
     const request = vi.fn(); vi.stubGlobal("fetch", request);
     await expect(listLLMModels()).rejects.toThrow("MANUS_API_URL");
     expect(request).not.toHaveBeenCalled();
+  });
+  it.each([
+    ["https://api.example", "https://api.example/v1/chat/completions"],
+    ["https://api.example/v1/", "https://api.example/v1/chat/completions"],
+    ["https://api.example/v1/chat/completions", "https://api.example/v1/chat/completions"],
+  ])("normalizes the configured LLM endpoint %s", async (apiUrl, expectedUrl) => {
+    vi.stubEnv("MANUS_API_URL", apiUrl);
+    vi.stubEnv("MANUS_API_KEY", "test-only");
+    const request = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      choices: [{ message: { content: "A safe test draft." } }],
+    }), { status: 200, headers: { "content-type": "application/json" } }));
+    vi.stubGlobal("fetch", request);
+
+    await expect(invokeLLM({ messages: [{ role: "user", content: "Write a test draft." }] }))
+      .resolves.toMatchObject({ choices: [{ message: { content: "A safe test draft." } }] });
+    expect(request).toHaveBeenCalledTimes(1);
+    expect(request.mock.calls[0][0]).toBe(expectedUrl);
+  });
+  it("does not retry 404 and explains the required Manus API base URL safely", async () => {
+    vi.stubEnv("MANUS_API_URL", "https://api.example");
+    vi.stubEnv("MANUS_API_KEY", "test-only");
+    const request = vi.fn().mockResolvedValue(new Response("Not Found", { status: 404 }));
+    vi.stubGlobal("fetch", request);
+
+    await expect(invokeLLM({ messages: [{ role: "user", content: "Write a test draft." }] }))
+      .rejects.toThrow("MANUS_API_URL: it must be the Manus API base URL");
+    expect(request).toHaveBeenCalledTimes(1);
   });
   it("persists URL-only image results through current managed storage", async () => {
     vi.stubEnv("MANUS_API_URL", "https://api.example"); vi.stubEnv("MANUS_API_KEY", "test-only");
